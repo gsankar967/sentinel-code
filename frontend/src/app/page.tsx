@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import CodeInput from "@/components/CodeInput";
 import ScanProgress from "@/components/ScanProgress";
@@ -47,7 +47,7 @@ export default function Home() {
         setScanResult(result);
 
         if (result.status !== "complete" && result.status !== "error") {
-          setTimeout(poll, 2000);
+          setTimeout(poll, 1000);
         } else {
           setIsScanning(false);
         }
@@ -60,7 +60,32 @@ export default function Home() {
     }
   };
 
-  const threats = sampleThreats as ThreatPoint[];
+  const allThreats = sampleThreats as ThreatPoint[];
+  const [visibleThreats, setVisibleThreats] = useState<ThreatPoint[]>([]);
+  const [latestThreat, setLatestThreat] = useState<ThreatPoint | null>(null);
+
+  // Simulate live threat feed — add threats one by one
+  useEffect(() => {
+    let idx = 0;
+    // Start with a few threats visible immediately
+    setVisibleThreats(allThreats.slice(0, 5));
+    idx = 5;
+
+    const interval = setInterval(() => {
+      if (idx < allThreats.length) {
+        const newThreat = allThreats[idx];
+        setVisibleThreats((prev) => [...prev, newThreat]);
+        setLatestThreat(newThreat);
+        idx++;
+      } else {
+        // Loop: pick a random threat to "re-detect"
+        const random = allThreats[Math.floor(Math.random() * allThreats.length)];
+        setLatestThreat(random);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [allThreats]);
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-8">
@@ -81,16 +106,29 @@ export default function Home() {
           <h2 className="text-lg font-semibold text-[#e4e4e7]">
             Global Threat Intelligence Map
           </h2>
-          <span className="text-xs text-[#a1a1aa] font-mono">Live threat feed</span>
+          <div className="flex items-center gap-2">
+            {latestThreat && (
+              <span className="text-[10px] text-[#a1a1aa] font-mono truncate max-w-[300px] animate-pulse">
+                {latestThreat.cve_id || latestThreat.id} — {latestThreat.country}
+              </span>
+            )}
+            <span className="flex items-center gap-1.5 text-xs text-[#00ff88] font-mono">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00ff88] opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#00ff88]" />
+              </span>
+              Live
+            </span>
+          </div>
         </div>
-        <ThreatMap threats={threats} height="400px" />
+        <ThreatMap threats={visibleThreats} height="400px" />
       </div>
 
       {/* Scanner */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-6">
           <CodeInput onSubmit={handleScan} isScanning={isScanning} />
-          {scanResult && scanResult.status !== "complete" && (
+          {scanResult && (isScanning || scanResult.status === "complete") && (
             <ScanProgress status={scanResult.status} progress={scanResult.progress} />
           )}
         </div>

@@ -10,6 +10,9 @@ interface CodeInputProps {
 export default function CodeInput({ onSubmit, isScanning }: CodeInputProps) {
   const [code, setCode] = useState("");
   const [language, setLanguage] = useState("python");
+  const [repoUrl, setRepoUrl] = useState("");
+  const [inputMode, setInputMode] = useState<"paste" | "repo">("paste");
+  const [fetchingRepo, setFetchingRepo] = useState(false);
 
   const samples: Record<string, string> = {
     python: `import sqlite3
@@ -124,12 +127,87 @@ public class LoginServlet extends HttpServlet {
     }
 }
 `,
+    go: `package main
+
+import (
+	"database/sql"
+	"fmt"
+	"net/http"
+	"os/exec"
+	"html/template"
+	"io/ioutil"
+)
+
+func loginHandler(w http.ResponseWriter, r *http.Request) {
+	username := r.FormValue("username")
+	password := r.FormValue("password")
+
+	// SQL Injection vulnerability
+	query := fmt.Sprintf("SELECT * FROM users WHERE username='%s' AND password='%s'", username, password)
+	db.Query(query)
+
+	// XSS vulnerability
+	fmt.Fprintf(w, "<h1>Welcome %s</h1>", username)
+}
+
+func cmdHandler(w http.ResponseWriter, r *http.Request) {
+	cmd := r.URL.Query().Get("cmd")
+	// Command injection vulnerability
+	out, _ := exec.Command("sh", "-c", cmd).Output()
+	w.Write(out)
+}
+
+func fileHandler(w http.ResponseWriter, r *http.Request) {
+	filename := r.URL.Query().Get("file")
+	// Path traversal vulnerability
+	data, _ := ioutil.ReadFile("/data/" + filename)
+	w.Write(data)
+}
+
+func main() {
+	http.HandleFunc("/login", loginHandler)
+	http.HandleFunc("/cmd", cmdHandler)
+	http.HandleFunc("/file", fileHandler)
+	http.ListenAndServe(":8080", nil)
+}
+`,
+  };
+
+  const fetchRepo = async () => {
+    if (!repoUrl.trim()) return;
+    setFetchingRepo(true);
+    try {
+      const resp = await fetch(`/api/repo?url=${encodeURIComponent(repoUrl)}`);
+      const data = await resp.json();
+      if (data.code) {
+        setCode(data.code);
+        if (data.language) setLanguage(data.language);
+        setInputMode("paste");
+      }
+    } catch {
+      // Failed to fetch repo
+    } finally {
+      setFetchingRepo(false);
+    }
   };
 
   return (
     <div className="bg-[#1a1a2e] border border-[#2a2a3e] rounded-xl p-5">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-semibold text-[#e4e4e7]">Paste Your Code</h2>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setInputMode("paste")}
+            className={`text-sm px-3 py-1 rounded-lg transition-colors ${inputMode === "paste" ? "bg-[#00ff88] text-[#0a0a0f] font-semibold" : "text-[#a1a1aa] hover:text-[#e4e4e7]"}`}
+          >
+            Paste Code
+          </button>
+          <button
+            onClick={() => setInputMode("repo")}
+            className={`text-sm px-3 py-1 rounded-lg transition-colors ${inputMode === "repo" ? "bg-[#00ff88] text-[#0a0a0f] font-semibold" : "text-[#a1a1aa] hover:text-[#e4e4e7]"}`}
+          >
+            GitHub URL
+          </button>
+        </div>
         <div className="flex items-center gap-3">
           <select
             value={language}
@@ -140,6 +218,7 @@ public class LoginServlet extends HttpServlet {
             <option value="javascript">JavaScript</option>
             <option value="typescript">TypeScript</option>
             <option value="java">Java</option>
+            <option value="go">Go</option>
             <option value="auto">Auto-detect</option>
           </select>
           <button
@@ -150,13 +229,33 @@ public class LoginServlet extends HttpServlet {
           </button>
         </div>
       </div>
-      <textarea
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        placeholder="Paste your code here for security analysis..."
-        className="w-full h-64 bg-[#0a0a0f] border border-[#2a2a3e] rounded-lg p-4 text-sm font-mono text-[#e4e4e7] placeholder-[#4a4a5e] focus:outline-none focus:border-[#00ff88] resize-none"
-        spellCheck={false}
-      />
+
+      {inputMode === "repo" ? (
+        <div className="flex gap-2">
+          <input
+            value={repoUrl}
+            onChange={(e) => setRepoUrl(e.target.value)}
+            placeholder="https://github.com/user/repo or https://github.com/user/repo/blob/main/file.py"
+            className="flex-1 bg-[#0a0a0f] border border-[#2a2a3e] rounded-lg px-4 py-3 text-sm font-mono text-[#e4e4e7] placeholder-[#4a4a5e] focus:outline-none focus:border-[#00ff88]"
+          />
+          <button
+            onClick={fetchRepo}
+            disabled={!repoUrl.trim() || fetchingRepo}
+            className="px-4 py-2 bg-[#00aaff] text-white font-semibold rounded-lg hover:bg-[#0088dd] disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm"
+          >
+            {fetchingRepo ? "Fetching..." : "Fetch"}
+          </button>
+        </div>
+      ) : (
+        <textarea
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="Paste your code here for security analysis..."
+          className="w-full h-64 bg-[#0a0a0f] border border-[#2a2a3e] rounded-lg p-4 text-sm font-mono text-[#e4e4e7] placeholder-[#4a4a5e] focus:outline-none focus:border-[#00ff88] resize-none"
+          spellCheck={false}
+        />
+      )}
+
       <div className="flex items-center justify-between mt-3">
         <p className="text-xs text-[#a1a1aa]">
           {code.split("\n").length} lines | {language}

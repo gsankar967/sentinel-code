@@ -2,7 +2,7 @@ import json
 import httpx
 from google import genai
 from google.genai import types
-from backend.config import GEMINI_API_KEY, ROCKETRIDE_API_URL
+from backend.config import GEMINI_API_KEY, ROCKETRIDE_URI, ROCKETRIDE_APIKEY
 from backend.models.scan import Vulnerability
 
 OWASP_PROMPT = """You are an expert security auditor. Analyze the following {language} code for security vulnerabilities.
@@ -39,17 +39,58 @@ Code to analyze:
 
 async def scan_with_rocketride(code: str, language: str) -> list[Vulnerability]:
     """Try to scan via RocketRide pipeline engine first."""
+    # Truncate very long code to avoid timeouts
+    if len(code) > 20000:
+        code = code[:20000] + "\n# ... truncated for analysis ..."
+    if not ROCKETRIDE_URI or not ROCKETRIDE_APIKEY:
+        return await scan_with_gemini(code, language)
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        headers = {"Content-Type": "application/json"}
+        headers["Authorization"] = f"Bearer {ROCKETRIDE_APIKEY}"
+        # Quick connectivity check — skip if RocketRide isn't responding
+        async with httpx.AsyncClient(timeout=2.0) as ping_client:
+            try:
+                resp = await ping_client.post(
+                    f"{ROCKETRIDE_URI}/webhook",
+                    headers=headers,
+                    json={"text": "ping"},
+                )
+                if resp.status_code not in (200, 400, 401, 403):
+                    return await scan_with_gemini(code, language)
+            except Exception:
+                return await scan_with_gemini(code, language)
+        async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.post(
-                f"{ROCKETRIDE_API_URL}/api/v1/pipelines/vulnerability_scan/run",
-                json={"inputs": {"code": code, "language": language}},
+                f"{ROCKETRIDE_URI}/webhook",
+                headers=headers,
+                json={"text": f"Language: {language}\n\n{code}"},
             )
             if resp.status_code == 200:
                 data = resp.json()
-                output = data.get("output", data.get("result", {}))
-                vulns = output.get("vulnerabilities", [])
-                return [Vulnerability(**v) for v in vulns]
+                # RocketRide webhook returns: data.objects.body.answers[]
+                body = data.get("data", {}).get("objects", {}).get("body", {})
+                answers = body.get("answers", [])
+                # answers is a list of strings from Gemini
+                answer_text = answers[0] if isinstance(answers, list) and answers else str(answers)
+                import re
+                # Strip markdown code fences
+                json_match = re.search(r"```(?:json)?\s*\n(.*?)(?:\n```|$)", answer_text, re.DOTALL)
+                if json_match:
+                    answer_text = json_match.group(1).strip()
+                # Try array first, then object
+                arr_match = re.search(r"\[.*\]", answer_text, re.DOTALL)
+                if arr_match:
+                    vulns_raw = json.loads(arr_match.group(0))
+                else:
+                    obj_match = re.search(r"\{.*\}", answer_text, re.DOTALL)
+                    if obj_match:
+                        parsed = json.loads(obj_match.group(0))
+                        vulns_raw = parsed.get("vulnerabilities", [parsed])
+                    else:
+                        return await scan_with_gemini(code, language)
+                if not vulns_raw:
+                    return await scan_with_gemini(code, language)
+                return [Vulnerability(**v) for v in vulns_raw]
     except Exception:
         pass  # Fall back to direct Gemini
     return await scan_with_gemini(code, language)
