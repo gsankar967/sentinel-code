@@ -47,15 +47,18 @@ async def scan_with_rocketride(code: str, language: str) -> list[Vulnerability]:
     try:
         headers = {"Content-Type": "application/json"}
         headers["Authorization"] = f"Bearer {ROCKETRIDE_APIKEY}"
-        # Quick connectivity check — skip if RocketRide isn't responding
-        async with httpx.AsyncClient(timeout=2.0) as ping_client:
+        # Quick check — verify pipeline is actually running
+        async with httpx.AsyncClient(timeout=3.0) as ping_client:
             try:
                 resp = await ping_client.post(
                     f"{ROCKETRIDE_URI}/webhook",
                     headers=headers,
                     json={"text": "ping"},
                 )
-                if resp.status_code not in (200, 400, 401, 403):
+                data = resp.json()
+                body = data.get("data", {}).get("objects", {}).get("body", {})
+                # If pipeline not running or error, skip to direct Gemini
+                if body.get("status") == "Error" or not body.get("answers"):
                     return await scan_with_gemini(code, language)
             except Exception:
                 return await scan_with_gemini(code, language)
@@ -100,6 +103,10 @@ async def scan_with_gemini(code: str, language: str) -> list[Vulnerability]:
     """Direct Gemini API call as fallback."""
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY not set")
+
+    # Truncate code for direct Gemini call too
+    if len(code) > 20000:
+        code = code[:20000] + "\n# ... truncated for analysis ..."
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     prompt = OWASP_PROMPT.format(language=language, code=code)

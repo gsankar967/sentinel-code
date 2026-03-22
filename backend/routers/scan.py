@@ -116,11 +116,14 @@ async def fetch_repo(url: str = Query(..., description="GitHub file or repo URL"
                             content = open(filepath).read()
                         except Exception:
                             continue
+                        # Truncate large individual files
+                        if len(content) > 5000:
+                            content = content[:5000] + "\n# ... file truncated ..."
                         code_parts.append(f"# === FILE: {relpath} ===\n{content}")
                         total_size += len(content)
-                        if len(code_parts) >= 10 or total_size > 50000:
+                        if len(code_parts) >= 5 or total_size > 10000:
                             break
-                    if len(code_parts) >= 10 or total_size > 50000:
+                    if len(code_parts) >= 5 or total_size > 10000:
                         break
 
             if not code_parts:

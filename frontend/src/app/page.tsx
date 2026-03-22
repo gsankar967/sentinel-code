@@ -41,15 +41,36 @@ export default function Home() {
       const { scan_id } = await res.json();
 
       // Poll for results
+      let retries = 0;
       const poll = async () => {
-        const statusRes = await fetch(`/api/scan/${scan_id}`);
-        const result: ScanResult = await statusRes.json();
-        setScanResult(result);
+        try {
+          const statusRes = await fetch(`/api/scan/${scan_id}`);
+          if (!statusRes.ok) {
+            retries++;
+            if (retries > 30) {
+              setIsScanning(false);
+              return;
+            }
+            setTimeout(poll, 2000);
+            return;
+          }
+          retries = 0;
+          const text = await statusRes.text();
+          const result: ScanResult = JSON.parse(text);
+          setScanResult(result);
 
-        if (result.status !== "complete" && result.status !== "error") {
-          setTimeout(poll, 1000);
-        } else {
-          setIsScanning(false);
+          if (result.status !== "complete" && result.status !== "error") {
+            setTimeout(poll, 1000);
+          } else {
+            setIsScanning(false);
+          }
+        } catch {
+          retries++;
+          if (retries > 30) {
+            setIsScanning(false);
+            return;
+          }
+          setTimeout(poll, 2000);
         }
       };
 

@@ -173,19 +173,29 @@ func main() {
 `,
   };
 
+  const [fetchError, setFetchError] = useState("");
+
   const fetchRepo = async () => {
     if (!repoUrl.trim()) return;
     setFetchingRepo(true);
+    setFetchError("");
     try {
       const resp = await fetch(`/api/repo?url=${encodeURIComponent(repoUrl)}`);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: "Failed to fetch" }));
+        setFetchError(err.detail || "Failed to fetch repo");
+        return;
+      }
       const data = await resp.json();
       if (data.code) {
         setCode(data.code);
         if (data.language) setLanguage(data.language);
         setInputMode("paste");
+      } else {
+        setFetchError("No source code found in repo");
       }
     } catch {
-      // Failed to fetch repo
+      setFetchError("Network error — could not reach backend");
     } finally {
       setFetchingRepo(false);
     }
@@ -231,20 +241,25 @@ func main() {
       </div>
 
       {inputMode === "repo" ? (
-        <div className="flex gap-2">
-          <input
-            value={repoUrl}
-            onChange={(e) => setRepoUrl(e.target.value)}
-            placeholder="https://github.com/user/repo or https://github.com/user/repo/blob/main/file.py"
-            className="flex-1 bg-[#0a0a0f] border border-[#2a2a3e] rounded-lg px-4 py-3 text-sm font-mono text-[#e4e4e7] placeholder-[#4a4a5e] focus:outline-none focus:border-[#00ff88]"
-          />
-          <button
-            onClick={fetchRepo}
-            disabled={!repoUrl.trim() || fetchingRepo}
-            className="px-4 py-2 bg-[#00aaff] text-white font-semibold rounded-lg hover:bg-[#0088dd] disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm"
-          >
-            {fetchingRepo ? "Fetching..." : "Fetch"}
-          </button>
+        <div>
+          <div className="flex gap-2">
+            <input
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+              placeholder="https://github.com/user/repo or https://github.com/user/repo/blob/main/file.py"
+              className="flex-1 bg-[#0a0a0f] border border-[#2a2a3e] rounded-lg px-4 py-3 text-sm font-mono text-[#e4e4e7] placeholder-[#4a4a5e] focus:outline-none focus:border-[#00ff88]"
+            />
+            <button
+              onClick={fetchRepo}
+              disabled={!repoUrl.trim() || fetchingRepo}
+              className="px-4 py-2 bg-[#00aaff] text-white font-semibold rounded-lg hover:bg-[#0088dd] disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm"
+            >
+              {fetchingRepo ? "Fetching..." : "Fetch"}
+            </button>
+          </div>
+          {fetchError && (
+            <p className="text-xs text-red-400 mt-2">{fetchError}</p>
+          )}
         </div>
       ) : (
         <textarea

@@ -12,6 +12,9 @@ wheels/
 # Environment secrets
 .env
 
+# RocketRide pipeline files (may contain API keys)
+*.pipe
+
 # Node
 node_modules/
 .next/
